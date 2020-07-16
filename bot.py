@@ -18,7 +18,6 @@ config.read('conf.ini')
 
 api_id = config['TELEGRAM']['api_id']
 api_hash = config['TELEGRAM']['api_hash']
-target_group = config['TELEGRAM'].getint('telegram_destination_group_id')
 session_file = 'telegramBot'
 
 
@@ -54,9 +53,17 @@ if proxy_enabled:
 else:
     telegramClient = TelegramClient(session_file, api_id, api_hash)
 
-dest_channel = config['TELEGRAM'].getint('destination_channel')
-chats = json.loads(config.get("TELEGRAM", "source_channels"))
-filtered_channels = json.loads(config.get("TELEGRAM", "filtered_channels"))
+
+def strToInt(strList):
+    newList = []
+    for i in strList:
+        i = int(i)
+        newList.append(i)
+    return newList
+
+
+un_filtered_source_channel = strToInt(list(config['UNFILTERED_CHANNELS'].keys()))
+filtered_source_channel = strToInt(list(config['MEDIA_FILTERED_CHANNELS'].keys()))
 
 
 def deEmojify(text):
@@ -70,31 +77,40 @@ def deEmojify(text):
     return regrex_pattern.sub(r'', text)
 
 
-@telegramClient.on(events.NewMessage(chats, blacklist_chats=False))
-async def newMessageHandler(msg):
-    await telegramClient.send_message(dest_channel, msg.message)
+def updateUI():
     global sent_msgs
     sent_msgs += 1
     print(f'[+] Forwarded Messages: {sent_msgs}', end='\r')
+
+
+@telegramClient.on(events.NewMessage(chats=un_filtered_source_channel, blacklist_chats=False))
+async def newMessageHandler(msg):
+    print('Got message')
+    src_chat = msg.chat_id
+    dest_channels = strToInt(json.loads(config.get("UNFILTERED_CHANNELS", str(src_chat))))
+    for channal in dest_channels:
+        await telegramClient.send_message(channal, msg.message)
+        updateUI()
     raise StopPropagation
 
 
-@telegramClient.on(events.NewMessage(chats=filtered_channels, blacklist_chats=False))
+@telegramClient.on(events.NewMessage(chats=filtered_source_channel, blacklist_chats=False))
 async def filteredMessageHandler(msg):
-    global num_of_msgs
     if msg.message.media:
         raise StopPropagation
-    emojiFiltered = deEmojify(msg.message.message)
-    await telegramClient.send_message(dest_channel, emojiFiltered)
-    global sent_msgs
-    sent_msgs += 1
-    print(f'[+] Forwarded Messages: {sent_msgs}', end='\r')
+    src_chat = msg.chat_id
+    dest_channels = strToInt(json.loads(config.get("MEDIA_FILTERED_CHANNELS", str(src_chat))))
+    for channal in dest_channels:
+        emojiFiltered = deEmojify(msg.message.message)
+        await telegramClient.send_message(channal, emojiFiltered)
+        updateUI()
     raise StopPropagation
 
 
 try:
-    telegramClient.start(phone='+923089442289')
-    print("-------------------------\nMessage Forward bot is up!\n-------------------------\n")
+    telegramClient.start()
+    msg = '< Message Forward bot is up! >'
+    print(f'\n{msg.center(len(msg)+30, "#")}\n')
     telegramClient.run_until_disconnected()
 except KeyboardInterrupt:
     print("[+] Quiting bot!")
